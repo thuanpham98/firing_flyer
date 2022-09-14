@@ -1,11 +1,20 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'dart:isolate';
 
-void myIsolate(SendPort isolateToMainStream) {
+import 'package:test_flutter/core_widget.dart';
+
+//  [Quaratic equations]
+void positionIsolate(SendPort isolateToMainStream) {
+  double vx = 5;
+  double vy = 5;
+  double ax = 0.5;
+  double ay = 0.5;
+  double t = 0;
+  double stepTime = 0.001;
+
   ReceivePort mainToIsolateStream = ReceivePort();
   isolateToMainStream.send(mainToIsolateStream.sendPort);
 
@@ -15,31 +24,59 @@ void myIsolate(SendPort isolateToMainStream) {
 
   Size poolsize = Size.zero;
 
+  List<Offset> bullet = [];
 
   mainToIsolateStream.listen((data) async {
-    print('[mainToIsolateStream] $data');
-    if(data !=null && data is Size){
+    if (data != null && data is Size) {
       poolsize = data;
+      vx = 50;
+      vy = 30;
+      ax = 0;
+      ay = 0;
+      t = 0;
+      stepTime = 0.001;
+      bullet.add(Offset(poolsize.width / 2, poolsize.height));
+      print(">>>");
+      print(bullet);
       isolateToMainStream.send(poolsize);
-    }else if(poolsize.width!=0){
-      // await Future.delayed(const Duration(milliseconds: 1),(){
-        if(((offsetStep.dx - offsetend.dx).abs() <= (offsetend.dx -offsetbase.dx).abs()/24) && ( (offsetStep.dy - offsetend.dy).abs() <= (offsetend.dx -offsetbase.dx).abs()/24)) {
-          offsetbase = Offset(offsetend.dx, offsetend.dy);
-          offsetend = Offset(Random.secure().nextInt((poolsize.width - 50).round()).toDouble(),Random.secure().nextInt((poolsize.height - 50).round()).toDouble());
-        }else{
-          offsetStep= Offset(offsetStep.dx +  (offsetend.dx -offsetbase.dx)/24, offsetStep.dy + (offsetend.dy -offsetbase.dy)/24);
-          if(offsetStep.dx >5 && offsetStep.dx < (poolsize.width - 50 -5)  && offsetStep.dy >5 && offsetStep.dy < (poolsize.height - 50 -5)  ){
-            // isolateToMainStream.send(offsetStep);yyyZZ
-          }else{
-            offsetStep = offsetend;
-          }
+    } else if (poolsize.width != 0) {
+      await Future.delayed(const Duration(milliseconds: 1));
+      if (bullet.isNotEmpty) {
+        bullet[0] = Offset(bullet[0].dx, bullet[0].dy - t);
+        if (bullet[0].dx < 0 ||
+            bullet[0].dx > poolsize.width ||
+            bullet[0].dy < 0) {
+          bullet.removeAt(0);
         }
-        isolateToMainStream.send(offsetStep);
-      // });
-    }else{
+      }
+
+      if (t == 0) {
+        offsetbase = Offset(offsetStep.dx, offsetStep.dy);
+        offsetend = Offset(
+            Random.secure().nextInt((poolsize.width - 50).round()).toDouble(),
+            Random.secure().nextInt((poolsize.height - 50).round()).toDouble());
+        stepTime =
+            ((offsetend.dx - offsetbase.dx) / poolsize.width).abs() / 100;
+        t = t + stepTime;
+      } else {
+        if ((Offset(offsetend.dx - offsetStep.dx, offsetend.dx - offsetStep.dx))
+                .distance <
+            5) {
+          t = 0;
+        } else {
+          double signX = (offsetend.dx - offsetbase.dx).sign;
+          double signY = (offsetend.dy - offsetbase.dy).sign;
+          offsetStep = Offset(
+            offsetbase.dx + signX * (vx * t + 0.5 * ax * pow(t, 2)),
+            offsetbase.dy + signY * (vy * t + 0.5 * ay * pow(t, 2)),
+          );
+          t = t + stepTime;
+        }
+      }
+      isolateToMainStream.send({'flyer': offsetStep, 'bullet': bullet});
+    } else {
       isolateToMainStream.send("stream isolate");
     }
-
   });
 
   isolateToMainStream.send('This is from myIsolate()');
@@ -71,72 +108,186 @@ class MyHomePage extends StatefulWidget {
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage>{
+class _MyHomePageState extends State<MyHomePage> {
   final ReceivePort isolateToMainStream = ReceivePort();
-  late final SendPort mainToIsolateStream ;
+  late final SendPort mainToIsolateStream;
   late final Isolate myIsolateInstance;
   final StreamController<dynamic> pipe = StreamController();
+  final StreamController<dynamic> pipeBullet = StreamController();
+  late final CustomButtonState gunControll;
 
   Future<void>? _initData;
-  Future<void> initData() async{
+  Future<void> initData() async {
     isolateToMainStream.listen((data) {
       if (data is SendPort) {
         mainToIsolateStream = data;
-        // mainToIsolateStream.send(MediaQuery.of(context).size);
-      } else if (data is Offset) {
-        pipe.add(data);
-        print('[isolateToMainStream] $data');
-        mainToIsolateStream?.send('Updata offset susscess');
-      }
-      else{
-        mainToIsolateStream?.send('This is from main()');
+      } else if (data is Map) {
+        pipe.add(data['flyer']);
+        print(data['bullet']);
+        if (data['bullet'].isNotEmpty) {
+          pipeBullet.add(data['bullet']);
+        }
+
+        mainToIsolateStream.send('Updata offset susscess');
+      } else {
+        mainToIsolateStream.send('This is from main()');
       }
     });
 
-    myIsolateInstance = await Isolate.spawn(myIsolate, isolateToMainStream.sendPort);
+    myIsolateInstance =
+        await Isolate.spawn(positionIsolate, isolateToMainStream.sendPort);
 
     return Future.value();
   }
 
+  double currentDx = 0;
+
   @override
   void initState() {
-    _initData=initData();
+    gunControll = CustomButtonState();
+    _initData = initData();
     super.initState();
+  }
+
+  @override
+  void dispose() {
+    myIsolateInstance.kill();
+    pipe.close();
+    pipeBullet.close();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: FutureBuilder(
-        future: _initData,
-        builder: (context, snapshot) {
-          if(snapshot.connectionState==ConnectionState.done){
-            mainToIsolateStream.send(MediaQuery.of(context).size);
-            return Container(
-              color: Colors.blue,
-              width: MediaQuery.of(context).size.width,
-              height: MediaQuery.of(context).size.height,
-              child:  StreamBuilder(
-              stream: pipe.stream,
-              builder: (context, snap) {
-                if(snap.data!=null && snap.data is Offset){
-                  return SizedBox.fromSize(
-                    size: MediaQuery.of(context).size,
-                    child: CustomPaint(
-                      painter: ShapePainter(
-                        shapeOffset: snap.data,
-                        shapeSize: Size(50,50),
+      body: Stack(
+        children: [
+          FutureBuilder(
+            future: _initData,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.done) {
+                mainToIsolateStream.send(Size(MediaQuery.of(context).size.width,
+                    MediaQuery.of(context).size.height - 200));
+                return Container(
+                  color: Colors.blue,
+                  width: MediaQuery.of(context).size.width,
+                  height: MediaQuery.of(context).size.height - 200,
+                  child: Stack(
+                    children: [
+                      StreamBuilder(
+                        stream: pipe.stream,
+                        builder: (context, snap) {
+                          if (snap.data != null && snap.data is Offset) {
+                            return SizedBox.fromSize(
+                              size: MediaQuery.of(context).size,
+                              child: CustomPaint(
+                                painter: ShapePainter(
+                                  shapeOffset: snap.data,
+                                  shapeSize: Size(50, 50),
+                                ),
+                              ),
+                            );
+                          }
+                          return SizedBox.square();
+                        },
+                      ),
+                      StreamBuilder(
+                        stream: pipeBullet.stream,
+                        builder: (context, snap) {
+                          if (snap.data != null &&
+                              snap.data is List &&
+                              snap.data.isNotEmpty) {
+                            return SizedBox.fromSize(
+                              size: MediaQuery.of(context).size,
+                              child: CustomPaint(
+                                painter: ShapePainter(
+                                  shapeOffset: snap.data[0],
+                                  shapeSize: Size(10, 10),
+                                ),
+                              ),
+                            );
+                          }
+                          return SizedBox.square();
+                        },
+                      ),
+                    ],
+                  ),
+                );
+              }
+              return const Center(
+                child: CircularProgressIndicator(),
+              );
+            },
+          ),
+          Column(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              Padding(
+                padding: EdgeInsets.all(16),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    GestureDetector(
+                      onPanEnd: (details) {
+                        print("end");
+                        currentDx = 0;
+                      },
+                      onPanStart: (details) {
+                        print('start again');
+                        currentDx = details.globalPosition.dx;
+                      },
+                      onPanUpdate: (details) {
+                        if (currentDx < details.globalPosition.dx) {
+                          if (gunControll.radian < 45) {
+                            gunControll.radian++;
+                          }
+                        } else if (currentDx > details.globalPosition.dx) {
+                          if (gunControll.radian > -45) {
+                            gunControll.radian--;
+                          }
+                        }
+                        currentDx = details.globalPosition.dx;
+                      },
+                      child: Container(
+                        height: 90,
+                        width: 90,
+                        color: Colors.red,
                       ),
                     ),
-                  );
-                }
-                return SizedBox.square();
-              },
-            ),
-            );
-          }
-          return Center(child: CircularProgressIndicator(),);
-        },
+                    Container(
+                      width: 150,
+                      child: UniCoreWidget(
+                        controller: gunControll,
+                        builder: (context, child) {
+                          print(gunControll.radian);
+                          return Transform.rotate(
+                            angle: (gunControll.radian * pi / 180),
+                            child: Container(
+                              height: 200,
+                              width: 50,
+                              color: Colors.green,
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    Listener(
+                      onPointerDown: (event) {
+                        print("press");
+                      },
+                      child: Container(
+                        height: 90,
+                        width: 90,
+                        color: Colors.yellow,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -309,18 +460,19 @@ class _MyHomePageState extends State<MyHomePage>{
 class ShapePainter extends CustomPainter {
   final Size shapeSize;
   final Offset shapeOffset;
-  ShapePainter({required this.shapeSize,required this.shapeOffset});
+  ShapePainter({required this.shapeSize, required this.shapeOffset});
   @override
   void paint(Canvas canvas, Size size) {
     var paint = Paint()
-    ..color = Colors.black
-    ..strokeWidth = 5
-    ..style = PaintingStyle.fill
-    ..strokeCap = StrokeCap.round;
+      ..color = Colors.black
+      ..strokeWidth = 5
+      ..style = PaintingStyle.fill
+      ..strokeCap = StrokeCap.round;
 
-    Offset center = Offset(shapeSize.width / 2 + shapeOffset.dx, shapeSize.height / 2 + shapeOffset.dy);
+    Offset center = Offset(shapeSize.width / 2 + shapeOffset.dx,
+        shapeSize.height / 2 + shapeOffset.dy);
 
-    canvas.drawCircle(center, shapeSize.width/2, paint);
+    canvas.drawCircle(center, shapeSize.width / 2, paint);
   }
 
   @override
