@@ -25,9 +25,18 @@ void positionIsolate(SendPort isolateToMainStream) {
   Size poolsize = Size.zero;
 
   List<Offset> bullet = [];
+  List<double> linear = [];
 
   mainToIsolateStream.listen((data) async {
-    if (data != null && data is Size) {
+    // print(data);
+    if (data != null && data is Map) {
+      if (data['message'] == "pumpBullet") {
+        double arc = double.parse(data['arc'].toString());
+        print(arc);
+        // linear.add(data['arc']);
+        // bullet.add(Offset(poolsize.width / 2, poolsize.height));
+      }
+    } else if (data != null && data is Size) {
       poolsize = data;
       vx = 50;
       vy = 30;
@@ -35,19 +44,17 @@ void positionIsolate(SendPort isolateToMainStream) {
       ay = 0;
       t = 0;
       stepTime = 0.001;
-      bullet.add(Offset(poolsize.width / 2, poolsize.height));
-      print(">>>");
-      print(bullet);
       isolateToMainStream.send(poolsize);
-    } else if (poolsize.width != 0) {
+    } else if (data is String && poolsize.width != 0) {
       await Future.delayed(const Duration(milliseconds: 1));
-      if (bullet.isNotEmpty) {
-        bullet[0] = Offset(bullet[0].dx, bullet[0].dy - t);
-        if (bullet[0].dx < 0 ||
-            bullet[0].dx > poolsize.width ||
-            bullet[0].dy < 0) {
-          bullet.removeAt(0);
-        }
+      if (linear.isNotEmpty) {
+        // bullet[0] = Offset((poolsize.height - 0.1 * t) / data['arc'],
+        //     poolsize.height - 0.1 * t);
+        // if (bullet[0].dx < 0 ||
+        //     bullet[0].dx > poolsize.width ||
+        //     bullet[0].dy < 0) {
+        //   bullet.removeAt(0);
+        // }
       }
 
       if (t == 0) {
@@ -123,7 +130,7 @@ class _MyHomePageState extends State<MyHomePage> {
         mainToIsolateStream = data;
       } else if (data is Map) {
         pipe.add(data['flyer']);
-        print(data['bullet']);
+        // print(data['bullet']);
         if (data['bullet'].isNotEmpty) {
           pipeBullet.add(data['bullet']);
         }
@@ -230,11 +237,11 @@ class _MyHomePageState extends State<MyHomePage> {
                   children: [
                     GestureDetector(
                       onPanEnd: (details) {
-                        print("end");
+                        // print("end");
                         currentDx = 0;
                       },
                       onPanStart: (details) {
-                        print('start again');
+                        // print('start again');
                         currentDx = details.globalPosition.dx;
                       },
                       onPanUpdate: (details) {
@@ -260,7 +267,7 @@ class _MyHomePageState extends State<MyHomePage> {
                       child: UniCoreWidget(
                         controller: gunControll,
                         builder: (context, child) {
-                          print(gunControll.radian);
+                          // print(gunControll.radian);
                           return Transform.rotate(
                             angle: (gunControll.radian * pi / 180),
                             child: Container(
@@ -274,7 +281,10 @@ class _MyHomePageState extends State<MyHomePage> {
                     ),
                     Listener(
                       onPointerDown: (event) {
-                        print("press");
+                        mainToIsolateStream.send({
+                          'message': 'pumpBullet',
+                          'arc': (gunControll.radian * pi / 180)
+                        });
                       },
                       child: Container(
                         height: 90,
@@ -383,7 +393,7 @@ class _MyHomePageState extends State<MyHomePage> {
 //         builder: (context, snapshotF) {
 //         if(snapshotF.connectionState==ConnectionState.done){
 //           return StreamBuilder<dynamic>(
-//             stream: masterPort,
+//             stream: masterPort,snapshotS
 //             builder: (context, snapshotS) {
 //               count ++;
 //               Offset pos = Offset.zero;
