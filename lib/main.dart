@@ -5,91 +5,18 @@ import 'package:flutter/material.dart';
 import 'dart:isolate';
 
 import 'package:test_flutter/core_widget.dart';
+import 'package:test_flutter/game_engine/flyer.dart';
+import 'package:test_flutter/thread_bool/thread_pool.dart';
 
-//  [Quaratic equations]
-void positionIsolate(SendPort isolateToMainStream) {
-  double vx = 5;
-  double vy = 5;
-  double ax = 0.5;
-  double ay = 0.5;
-  double t = 0;
-  double stepTime = 0.001;
-
-  ReceivePort mainToIsolateStream = ReceivePort();
-  isolateToMainStream.send(mainToIsolateStream.sendPort);
-
-  Offset offsetbase = Offset.zero;
-  Offset offsetStep = Offset.zero;
-  Offset offsetend = Offset.zero;
-
-  Size poolsize = Size.zero;
-
-  List<Offset> bullet = [];
-  List<double> linear = [];
-
-  mainToIsolateStream.listen((data) async {
-    // print(data);
-    if (data != null && data is Map) {
-      if (data['message'] == "pumpBullet") {
-        double arc = double.parse(data['arc'].toString());
-        print(arc);
-        // linear.add(data['arc']);
-        // bullet.add(Offset(poolsize.width / 2, poolsize.height));
-      }
-    } else if (data != null && data is Size) {
-      poolsize = data;
-      vx = 50;
-      vy = 30;
-      ax = 0;
-      ay = 0;
-      t = 0;
-      stepTime = 0.001;
-      isolateToMainStream.send(poolsize);
-    } else if (data is String && poolsize.width != 0) {
-      await Future.delayed(const Duration(milliseconds: 1));
-      if (linear.isNotEmpty) {
-        // bullet[0] = Offset((poolsize.height - 0.1 * t) / data['arc'],
-        //     poolsize.height - 0.1 * t);
-        // if (bullet[0].dx < 0 ||
-        //     bullet[0].dx > poolsize.width ||
-        //     bullet[0].dy < 0) {
-        //   bullet.removeAt(0);
-        // }
-      }
-
-      if (t == 0) {
-        offsetbase = Offset(offsetStep.dx, offsetStep.dy);
-        offsetend = Offset(
-            Random.secure().nextInt((poolsize.width - 50).round()).toDouble(),
-            Random.secure().nextInt((poolsize.height - 50).round()).toDouble());
-        stepTime =
-            ((offsetend.dx - offsetbase.dx) / poolsize.width).abs() / 100;
-        t = t + stepTime;
-      } else {
-        if ((Offset(offsetend.dx - offsetStep.dx, offsetend.dx - offsetStep.dx))
-                .distance <
-            5) {
-          t = 0;
-        } else {
-          double signX = (offsetend.dx - offsetbase.dx).sign;
-          double signY = (offsetend.dy - offsetbase.dy).sign;
-          offsetStep = Offset(
-            offsetbase.dx + signX * (vx * t + 0.5 * ax * pow(t, 2)),
-            offsetbase.dy + signY * (vy * t + 0.5 * ay * pow(t, 2)),
-          );
-          t = t + stepTime;
-        }
-      }
-      isolateToMainStream.send({'flyer': offsetStep, 'bullet': bullet});
-    } else {
-      isolateToMainStream.send("stream isolate");
-    }
-  });
-
-  isolateToMainStream.send('This is from myIsolate()');
+class Bullets {
+  static bool checkDone = false;
 }
 
-void main() {
+void main() async {
+  if (ThreadPool.index != null) {
+    await ThreadPool.disposeThreadPool();
+  }
+  ThreadPool.initThreadPool(maxThread: 2);
   runApp(const MyApp());
 }
 
@@ -116,34 +43,27 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  final ReceivePort isolateToMainStream = ReceivePort();
-  late final SendPort mainToIsolateStream;
-  late final Isolate myIsolateInstance;
   final StreamController<dynamic> pipe = StreamController();
   final StreamController<dynamic> pipeBullet = StreamController();
   late final CustomButtonState gunControll;
+  late final Node? node;
 
   Future<void>? _initData;
   Future<void> initData() async {
-    isolateToMainStream.listen((data) {
+    node = await ThreadPool.createTask(positionIsolate);
+
+    node?.masterPort.listen((data) {
       if (data is SendPort) {
-        mainToIsolateStream = data;
+        node?.workerPort = data;
       } else if (data is Map) {
         pipe.add(data['flyer']);
-        // print(data['bullet']);
-        if (data['bullet'].isNotEmpty) {
-          pipeBullet.add(data['bullet']);
-        }
+        pipeBullet.add(data['bullet']);
 
-        mainToIsolateStream.send('Updata offset susscess');
+        node?.workerPort?.send('Updata offset susscess');
       } else {
-        mainToIsolateStream.send('This is from main()');
+        node?.workerPort?.send('This is from main()');
       }
     });
-
-    myIsolateInstance =
-        await Isolate.spawn(positionIsolate, isolateToMainStream.sendPort);
-
     return Future.value();
   }
 
@@ -158,7 +78,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   void dispose() {
-    myIsolateInstance.kill();
+    ThreadPool.deleteTask(node!.index);
     pipe.close();
     pipeBullet.close();
     super.dispose();
@@ -173,7 +93,7 @@ class _MyHomePageState extends State<MyHomePage> {
             future: _initData,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.done) {
-                mainToIsolateStream.send(Size(MediaQuery.of(context).size.width,
+                node?.workerPort?.send(Size(MediaQuery.of(context).size.width,
                     MediaQuery.of(context).size.height - 200));
                 return Container(
                   color: Colors.blue,
@@ -201,6 +121,7 @@ class _MyHomePageState extends State<MyHomePage> {
                       StreamBuilder(
                         stream: pipeBullet.stream,
                         builder: (context, snap) {
+                          // print(snap.data);
                           if (snap.data != null &&
                               snap.data is List &&
                               snap.data.isNotEmpty) {
@@ -214,6 +135,7 @@ class _MyHomePageState extends State<MyHomePage> {
                               ),
                             );
                           }
+                          Bullets.checkDone = false;
                           return SizedBox.square();
                         },
                       ),
@@ -280,11 +202,14 @@ class _MyHomePageState extends State<MyHomePage> {
                       ),
                     ),
                     Listener(
-                      onPointerDown: (event) {
-                        mainToIsolateStream.send({
-                          'message': 'pumpBullet',
-                          'arc': (gunControll.radian * pi / 180)
-                        });
+                      onPointerDown: (event) async {
+                        if (!Bullets.checkDone) {
+                          Bullets.checkDone = true;
+                          node?.workerPort?.send({
+                            'message': 'pumpBullet',
+                            'arc': (90 - gunControll.radian)
+                          });
+                        }
                       },
                       child: Container(
                         height: 90,

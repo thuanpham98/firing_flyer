@@ -1,0 +1,1 @@
+const maxThreadDefault = 8;
