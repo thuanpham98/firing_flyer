@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -93,8 +94,11 @@ class _MyHomePageState extends State<MyHomePage> {
             future: _initData,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.done) {
-                node?.workerPort?.send(Size(MediaQuery.of(context).size.width,
-                    MediaQuery.of(context).size.height - 200));
+                node?.workerPort?.send(json.encode(FlyerMessage(
+                  data: Size(MediaQuery.of(context).size.width,
+                      MediaQuery.of(context).size.height - 200),
+                  type: FlyerMessageType.init,
+                )));
                 return Container(
                   color: Colors.blue,
                   width: MediaQuery.of(context).size.width,
@@ -108,7 +112,7 @@ class _MyHomePageState extends State<MyHomePage> {
                             return SizedBox.fromSize(
                               size: MediaQuery.of(context).size,
                               child: CustomPaint(
-                                painter: ShapePainter(
+                                painter: FlyerPainter(
                                   shapeOffset: snap.data,
                                   shapeSize: Size(50, 50),
                                 ),
@@ -128,7 +132,7 @@ class _MyHomePageState extends State<MyHomePage> {
                             return SizedBox.fromSize(
                               size: MediaQuery.of(context).size,
                               child: CustomPaint(
-                                painter: ShapePainter(
+                                painter: FlyerPainter(
                                   shapeOffset: snap.data[0],
                                   shapeSize: Size(10, 10),
                                 ),
@@ -392,27 +396,4 @@ class _MyHomePageState extends State<MyHomePage> {
 //   }
 // }
 
-class ShapePainter extends CustomPainter {
-  final Size shapeSize;
-  final Offset shapeOffset;
-  ShapePainter({required this.shapeSize, required this.shapeOffset});
-  @override
-  void paint(Canvas canvas, Size size) {
-    var paint = Paint()
-      ..color = Colors.black
-      ..strokeWidth = 5
-      ..style = PaintingStyle.fill
-      ..strokeCap = StrokeCap.round;
 
-    Offset center = Offset(shapeSize.width / 2 + shapeOffset.dx,
-        shapeSize.height / 2 + shapeOffset.dy);
-
-    canvas.drawCircle(center, shapeSize.width / 2, paint);
-  }
-
-  @override
-  bool shouldRepaint(CustomPainter oldDelegate) {
-    // TODO: implement shouldRepaint
-    return true;
-  }
-}
