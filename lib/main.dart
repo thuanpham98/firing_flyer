@@ -1,13 +1,11 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'dart:isolate';
 
-import 'package:test_flutter/core_widget.dart';
-import 'package:test_flutter/game_engine/flyer.dart';
-import 'package:test_flutter/thread_bool/thread_pool.dart';
+import 'package:firing_flyer/core_widget.dart';
+import 'package:firing_flyer/game_engine/flyer.dart';
+import 'package:firing_flyer/thread_bool/thread_pool.dart';
 
 class Bullets {
   static bool checkDone = false;
@@ -51,18 +49,46 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void>? _initData;
   Future<void> initData() async {
-    node = await ThreadPool.createTask(positionIsolate);
+    node = await ThreadPool.createTask(positionFlyer);
 
     node?.masterPort.listen((data) {
-      if (data is SendPort) {
-        node?.workerPort = data;
-      } else if (data is Map) {
-        pipe.add(data['flyer']);
-        pipeBullet.add(data['bullet']);
+      if (data['type'] == FlyerMessageType.init.name) {
+        node?.workerPort = data['data'];
+        node?.workerPort?.send(
+          FlyerMessage.toJson(
+            FlyerMessage(data: null, type: FlyerMessageType.ready),
+          ),
+        );
+      } else if (data['type'] == FlyerMessageType.ready.name) {
+        node?.workerPort?.send(
+          FlyerMessage.toJson(
+            FlyerMessage(data: null, type: FlyerMessageType.update),
+          ),
+        );
+      } else if (data['type'] == FlyerMessageType.update.name) {
+        if (data['data'] == null) {
+          node?.workerPort?.send(
+            FlyerMessage.toJson(
+              FlyerMessage(data: null, type: FlyerMessageType.update),
+            ),
+          );
+        } else {
+          pipe.add(data['data']['flyer']);
+          node?.workerPort?.send(
+            FlyerMessage.toJson(
+              FlyerMessage(data: "done", type: FlyerMessageType.update),
+            ),
+          );
+        }
+        // pipe.add(data['flyer']);
+        // pipeBullet.add(data['bullet']);
 
-        node?.workerPort?.send('Updata offset susscess');
       } else {
-        node?.workerPort?.send('This is from main()');
+        node?.workerPort?.send(
+          FlyerMessage.toJson(
+            FlyerMessage(data: null, type: FlyerMessageType.idle),
+          ),
+        );
       }
     });
     return Future.value();
@@ -94,11 +120,10 @@ class _MyHomePageState extends State<MyHomePage> {
             future: _initData,
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.done) {
-                node?.workerPort?.send(json.encode(FlyerMessage(
-                  data: Size(MediaQuery.of(context).size.width,
-                      MediaQuery.of(context).size.height - 200),
-                  type: FlyerMessageType.init,
-                )));
+                node?.workerPort?.send(FlyerMessage.toJson(FlyerMessage(
+                    data: Size(MediaQuery.of(context).size.width,
+                        MediaQuery.of(context).size.height - 200),
+                    type: FlyerMessageType.init)));
                 return Container(
                   color: Colors.blue,
                   width: MediaQuery.of(context).size.width,
@@ -163,11 +188,9 @@ class _MyHomePageState extends State<MyHomePage> {
                   children: [
                     GestureDetector(
                       onPanEnd: (details) {
-                        // print("end");
                         currentDx = 0;
                       },
                       onPanStart: (details) {
-                        // print('start again');
                         currentDx = details.globalPosition.dx;
                       },
                       onPanUpdate: (details) {
@@ -193,7 +216,6 @@ class _MyHomePageState extends State<MyHomePage> {
                       child: UniCoreWidget(
                         controller: gunControll,
                         builder: (context, child) {
-                          // print(gunControll.radian);
                           return Transform.rotate(
                             angle: (gunControll.radian * pi / 180),
                             child: Container(
