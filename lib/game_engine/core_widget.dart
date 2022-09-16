@@ -29,3 +29,18 @@ class CustomButtonState extends UnicoreController {
     return _radian;
   }
 }
+
+class ObjectPosition extends UnicoreController {
+  Offset? _offset = Offset.zero;
+
+  ObjectPosition();
+
+  set offset(Offset? value) {
+    _offset = value;
+    notifyListeners();
+  }
+
+  Offset? get offset {
+    return _offset;
+  }
+}

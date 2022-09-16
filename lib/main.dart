@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'dart:math';
 
+import 'package:firing_flyer/game_engine/bullet.dart';
 import 'package:flutter/material.dart';
 
-import 'package:firing_flyer/core_widget.dart';
+import 'package:firing_flyer/game_engine/core_widget.dart';
 import 'package:firing_flyer/game_engine/flyer.dart';
 import 'package:firing_flyer/thread_bool/thread_pool.dart';
 
@@ -42,15 +43,18 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  final StreamController<dynamic> pipe = StreamController();
-  final StreamController<dynamic> pipeBullet = StreamController();
   late final CustomButtonState gunControll;
+  late final ObjectPosition flyerPos;
+  late final ObjectPosition bulletPos;
   late final Node? node;
+  late final Node? nodeBullet;
 
   Future<void>? _initData;
   Future<void> initData() async {
     node = await ThreadPool.createTask(positionFlyer);
+    nodeBullet = await ThreadPool.createTask(positionBullet);
 
+    //  flyer
     node?.masterPort.listen((data) {
       if (data['type'] == FlyerMessageType.init.name) {
         node?.workerPort = data['data'];
@@ -73,20 +77,58 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
           );
         } else {
-          pipe.add(data['data']['flyer']);
+          flyerPos.offset = data['data']['flyer'];
+          // pipe.add(data['data']['flyer']);
           node?.workerPort?.send(
             FlyerMessage.toJson(
               FlyerMessage(data: "done", type: FlyerMessageType.update),
             ),
           );
         }
-        // pipe.add(data['flyer']);
-        // pipeBullet.add(data['bullet']);
-
       } else {
         node?.workerPort?.send(
           FlyerMessage.toJson(
             FlyerMessage(data: null, type: FlyerMessageType.idle),
+          ),
+        );
+      }
+    });
+
+    // bullets
+    nodeBullet?.masterPort.listen((data) {
+      if (data['type'] == BulletMessageType.init.name) {
+        nodeBullet?.workerPort = data['data'];
+        setState(() {});
+      } else if (data['type'] == BulletMessageType.ready.name) {
+        nodeBullet?.workerPort?.send(
+          BulletMessage.toJson(
+            BulletMessage(data: null, type: BulletMessageType.ready),
+          ),
+        );
+      } else if (data['type'] == BulletMessageType.update.name) {
+        // print(data);
+        if (data['data'] == null) {
+          Bullets.checkDone = false;
+          nodeBullet?.workerPort?.send(
+            BulletMessage.toJson(
+              BulletMessage(data: null, type: BulletMessageType.update),
+            ),
+          );
+        } else {
+          if (data['data']['bullet'] != null &&
+              data['data']['bullet'].isNotEmpty) {
+            bulletPos.offset = data['data']['bullet'][0];
+          }
+          nodeBullet?.workerPort?.send(
+            BulletMessage.toJson(
+              BulletMessage(data: "done", type: BulletMessageType.update),
+            ),
+          );
+        }
+      } else {
+        nodeBullet?.workerPort?.send(
+          BulletMessage.toJson(
+            BulletMessage(data: null, type: BulletMessageType.idle),
           ),
         );
       }
@@ -99,6 +141,8 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     gunControll = CustomButtonState();
+    flyerPos = ObjectPosition();
+    bulletPos = ObjectPosition();
     _initData = initData();
     super.initState();
   }
@@ -106,8 +150,7 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void dispose() {
     ThreadPool.deleteTask(node!.index);
-    pipe.close();
-    pipeBullet.close();
+    ThreadPool.deleteTask(nodeBullet!.index);
     super.dispose();
   }
 
@@ -124,50 +167,46 @@ class _MyHomePageState extends State<MyHomePage> {
                     data: Size(MediaQuery.of(context).size.width,
                         MediaQuery.of(context).size.height - 200),
                     type: FlyerMessageType.init)));
+                nodeBullet?.workerPort?.send(BulletMessage.toJson(BulletMessage(
+                    data: Size(MediaQuery.of(context).size.width,
+                        MediaQuery.of(context).size.height - 200),
+                    type: BulletMessageType.init)));
                 return Container(
                   color: Colors.blue,
                   width: MediaQuery.of(context).size.width,
                   height: MediaQuery.of(context).size.height - 200,
                   child: Stack(
                     children: [
-                      StreamBuilder(
-                        stream: pipe.stream,
-                        builder: (context, snap) {
-                          if (snap.data != null && snap.data is Offset) {
+                      if (flyerPos.offset != null)
+                        UniCoreWidget(
+                          controller: flyerPos,
+                          builder: (context, child) {
                             return SizedBox.fromSize(
                               size: MediaQuery.of(context).size,
                               child: CustomPaint(
                                 painter: FlyerPainter(
-                                  shapeOffset: snap.data,
+                                  shapeOffset: flyerPos.offset!,
                                   shapeSize: Size(50, 50),
                                 ),
                               ),
                             );
-                          }
-                          return SizedBox.square();
-                        },
-                      ),
-                      StreamBuilder(
-                        stream: pipeBullet.stream,
-                        builder: (context, snap) {
-                          // print(snap.data);
-                          if (snap.data != null &&
-                              snap.data is List &&
-                              snap.data.isNotEmpty) {
+                          },
+                        ),
+                      if (bulletPos.offset != null)
+                        UniCoreWidget(
+                          controller: bulletPos,
+                          builder: (context, child) {
                             return SizedBox.fromSize(
                               size: MediaQuery.of(context).size,
                               child: CustomPaint(
-                                painter: FlyerPainter(
-                                  shapeOffset: snap.data[0],
+                                painter: BulletPainter(
+                                  shapeOffset: bulletPos.offset!,
                                   shapeSize: Size(10, 10),
                                 ),
                               ),
                             );
-                          }
-                          Bullets.checkDone = false;
-                          return SizedBox.square();
-                        },
-                      ),
+                          },
+                        ),
                     ],
                   ),
                 );
@@ -229,13 +268,16 @@ class _MyHomePageState extends State<MyHomePage> {
                     ),
                     Listener(
                       onPointerDown: (event) async {
-                        if (!Bullets.checkDone) {
-                          Bullets.checkDone = true;
-                          node?.workerPort?.send({
-                            'message': 'pumpBullet',
-                            'arc': (90 - gunControll.radian)
-                          });
-                        }
+                        // if (!Bullets.checkDone) {
+                        //   Bullets.checkDone = true;
+                        nodeBullet?.workerPort?.send(
+                          BulletMessage.toJson(
+                            BulletMessage(
+                                data: (90 - gunControll.radian),
+                                type: BulletMessageType.fire),
+                          ),
+                        );
+                        // }
                       },
                       child: Container(
                         height: 90,
