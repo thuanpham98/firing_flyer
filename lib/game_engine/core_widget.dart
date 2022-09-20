@@ -44,3 +44,18 @@ class ObjectPosition extends UnicoreController {
     return _offset;
   }
 }
+
+class GameScore extends UnicoreController {
+  int _score = 0;
+
+  GameScore();
+
+  set score(int value) {
+    _score = value;
+    notifyListeners();
+  }
+
+  int get score {
+    return _score;
+  }
+}

@@ -8,10 +8,6 @@ import 'package:firing_flyer/game_engine/core_widget.dart';
 import 'package:firing_flyer/game_engine/flyer.dart';
 import 'package:firing_flyer/thread_bool/thread_pool.dart';
 
-class Bullets {
-  static bool checkDone = false;
-}
-
 void main() async {
   if (ThreadPool.index != null) {
     await ThreadPool.disposeThreadPool();
@@ -46,8 +42,10 @@ class _MyHomePageState extends State<MyHomePage> {
   late final CustomButtonState gunControll;
   late final ObjectPosition flyerPos;
   late final ObjectPosition bulletPos;
+  late final GameScore scoreCounter;
   late final Node? node;
   late final Node? nodeBullet;
+  bool checkDone = false;
 
   Future<void>? _initData;
   Future<void> initData() async {
@@ -78,13 +76,25 @@ class _MyHomePageState extends State<MyHomePage> {
           );
         } else {
           flyerPos.offset = data['data']['flyer'];
-          // pipe.add(data['data']['flyer']);
           node?.workerPort?.send(
             FlyerMessage.toJson(
               FlyerMessage(data: "done", type: FlyerMessageType.update),
             ),
           );
         }
+      } else if (data['type'] == FlyerMessageType.killed.name) {
+        scoreCounter.score++;
+        node?.workerPort?.send(
+          FlyerMessage.toJson(
+            FlyerMessage(data: null, type: FlyerMessageType.update),
+          ),
+        );
+      } else if (data['type'] == FlyerMessageType.win.name) {
+        scoreCounter.score = 0;
+        node?.workerPort?.send(FlyerMessage.toJson(FlyerMessage(
+            data: Size(MediaQuery.of(context).size.width,
+                MediaQuery.of(context).size.height - 200),
+            type: FlyerMessageType.init)));
       } else {
         node?.workerPort?.send(
           FlyerMessage.toJson(
@@ -106,9 +116,7 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         );
       } else if (data['type'] == BulletMessageType.update.name) {
-        // print(data);
         if (data['data'] == null) {
-          Bullets.checkDone = false;
           nodeBullet?.workerPort?.send(
             BulletMessage.toJson(
               BulletMessage(data: null, type: BulletMessageType.update),
@@ -118,6 +126,26 @@ class _MyHomePageState extends State<MyHomePage> {
           if (data['data']['bullet'] != null &&
               data['data']['bullet'].isNotEmpty) {
             bulletPos.offset = data['data']['bullet'][0];
+          } else {
+            bulletPos.offset = null;
+            checkDone = false;
+          }
+          if (flyerPos.offset != null && bulletPos.offset != null) {
+            if (((bulletPos.offset!) - (flyerPos.offset!)).distance < 30) {
+              bulletPos.offset = null;
+              flyerPos.offset = null;
+              checkDone = false;
+              node?.workerPort?.send(
+                FlyerMessage.toJson(
+                  FlyerMessage(data: null, type: FlyerMessageType.killed),
+                ),
+              );
+              nodeBullet?.workerPort?.send(
+                BulletMessage.toJson(
+                  BulletMessage(data: "done", type: BulletMessageType.ready),
+                ),
+              );
+            }
           }
           nodeBullet?.workerPort?.send(
             BulletMessage.toJson(
@@ -143,6 +171,7 @@ class _MyHomePageState extends State<MyHomePage> {
     gunControll = CustomButtonState();
     flyerPos = ObjectPosition();
     bulletPos = ObjectPosition();
+    scoreCounter = GameScore();
     _initData = initData();
     super.initState();
   }
@@ -177,10 +206,20 @@ class _MyHomePageState extends State<MyHomePage> {
                   height: MediaQuery.of(context).size.height - 200,
                   child: Stack(
                     children: [
-                      if (flyerPos.offset != null)
-                        UniCoreWidget(
-                          controller: flyerPos,
-                          builder: (context, child) {
+                      Column(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Container(
+                            height: 100,
+                            width: double.infinity,
+                            color: Colors.blueGrey,
+                          )
+                        ],
+                      ),
+                      UniCoreWidget(
+                        controller: flyerPos,
+                        builder: (context, child) {
+                          if (flyerPos.offset != null) {
                             return SizedBox.fromSize(
                               size: MediaQuery.of(context).size,
                               child: CustomPaint(
@@ -190,12 +229,14 @@ class _MyHomePageState extends State<MyHomePage> {
                                 ),
                               ),
                             );
-                          },
-                        ),
-                      if (bulletPos.offset != null)
-                        UniCoreWidget(
-                          controller: bulletPos,
-                          builder: (context, child) {
+                          }
+                          return SizedBox.shrink();
+                        },
+                      ),
+                      UniCoreWidget(
+                        controller: bulletPos,
+                        builder: (context, child) {
+                          if (bulletPos.offset != null) {
                             return SizedBox.fromSize(
                               size: MediaQuery.of(context).size,
                               child: CustomPaint(
@@ -205,8 +246,10 @@ class _MyHomePageState extends State<MyHomePage> {
                                 ),
                               ),
                             );
-                          },
-                        ),
+                          }
+                          return SizedBox.shrink();
+                        },
+                      ),
                     ],
                   ),
                 );
@@ -219,11 +262,11 @@ class _MyHomePageState extends State<MyHomePage> {
           Column(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              Padding(
+              Container(
                 padding: EdgeInsets.all(16),
+                height: 200,
+                width: MediaQuery.of(context).size.width,
                 child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     GestureDetector(
                       onPanEnd: (details) {
@@ -250,44 +293,65 @@ class _MyHomePageState extends State<MyHomePage> {
                         color: Colors.red,
                       ),
                     ),
-                    Container(
-                      width: 150,
-                      child: UniCoreWidget(
-                        controller: gunControll,
-                        builder: (context, child) {
-                          return Transform.rotate(
-                            angle: (gunControll.radian * pi / 180),
-                            child: Container(
-                              height: 200,
-                              width: 50,
-                              color: Colors.green,
+                    Expanded(
+                      child: Column(
+                        children: [
+                          SizedBox(
+                            width: 120,
+                            height: 30,
+                            child: UniCoreWidget(
+                              controller: gunControll,
+                              builder: (context, child) {
+                                return Transform.rotate(
+                                  angle: (gunControll.radian * pi / 180),
+                                  child: Container(
+                                    height: 200,
+                                    width: 50,
+                                    color: Colors.green,
+                                  ),
+                                );
+                              },
                             ),
-                          );
-                        },
+                          ),
+                          UniCoreWidget(
+                            controller: scoreCounter,
+                            builder: (context, child) {
+                              return Container(
+                                alignment: Alignment.center,
+                                width: double.infinity,
+                                padding: EdgeInsets.all(16),
+                                child: Text(
+                                  '${scoreCounter.score}',
+                                  style: TextStyle(fontSize: 32),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
                       ),
                     ),
                     Listener(
                       onPointerDown: (event) async {
-                        // if (!Bullets.checkDone) {
-                        //   Bullets.checkDone = true;
-                        nodeBullet?.workerPort?.send(
-                          BulletMessage.toJson(
-                            BulletMessage(
-                                data: (90 - gunControll.radian),
-                                type: BulletMessageType.fire),
-                          ),
-                        );
-                        // }
+                        if (!checkDone) {
+                          checkDone = true;
+                          nodeBullet?.workerPort?.send(
+                            BulletMessage.toJson(
+                              BulletMessage(
+                                  data: (90 - gunControll.radian),
+                                  type: BulletMessageType.fire),
+                            ),
+                          );
+                        }
                       },
                       child: Container(
-                        height: 90,
-                        width: 90,
+                        height: 60,
+                        width: 60,
                         color: Colors.yellow,
                       ),
                     ),
                   ],
                 ),
-              ),
+              )
             ],
           ),
         ],
@@ -295,169 +359,3 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 }
-// class _MyHomePageState extends State<MyHomePage> {
-//   final ReceivePort masterPort = ReceivePort();
-//   late final SendPort slaveport ;
-//   late final Isolate isolate;
-//   static Size poolsize = Size(300,300);
-//   int count = 0 ;
-//
-//   static Future<void> randomPosistion(SendPort sendPort) async{
-//     Offset offsetbase = Offset.zero;
-//     Offset offsetStep = Offset.zero;
-//     Offset offsetend = Offset.zero;
-//     final ReceivePort workerPort = ReceivePort();
-//
-//     sendPort.send(workerPort.sendPort);
-//     print(">>.start listen");
-//     workerPort.listen((message)  async {
-//       // await Future.delayed(const Duration(milliseconds: 1),(){
-//         if(((offsetStep.dx - offsetend.dx).abs() <= (offsetend.dx -offsetbase.dx).abs()/300) && ( (offsetStep.dy - offsetend.dy).abs() <= (offsetend.dx -offsetbase.dx).abs()/300)) {
-//           offsetbase = Offset(offsetend.dx, offsetend.dy);
-//           offsetend = Offset(Random.secure().nextInt((poolsize.width - 50).round()).toDouble(),Random.secure().nextInt((poolsize.height - 50).round()).toDouble());
-//         }
-//
-//         offsetStep= Offset(offsetStep.dx +  (offsetend.dx -offsetbase.dx)/300, offsetStep.dy + (offsetend.dy -offsetbase.dy)/300);
-//         if(offsetStep.dx >5 && offsetStep.dx < (poolsize.width - 50 -5)  && offsetStep.dy >5 && offsetStep.dy < (poolsize.height - 50 -5)  ){
-//           sendPort.send(offsetStep);
-//         }else{
-//           offsetStep = offsetend;
-//         }
-//       // });
-//     });
-//
-//       // while(true){
-//       //   await Future.delayed(const Duration(milliseconds: 1),(){
-//       //     if(((offsetStep.dx - offsetend.dx).abs() <= (offsetend.dx -offsetbase.dx).abs()/300) && ( (offsetStep.dy - offsetend.dy).abs() <= (offsetend.dx -offsetbase.dx).abs()/300)) {
-//       //       offsetbase = Offset(offsetend.dx, offsetend.dy);
-//       //       offsetend = Offset(Random.secure().nextInt((poolsize.width - 50).round()).toDouble(),Random.secure().nextInt((poolsize.height - 50).round()).toDouble());
-//       //     }
-//       //
-//       //     offsetStep= Offset(offsetStep.dx +  (offsetend.dx -offsetbase.dx)/300, offsetStep.dy + (offsetend.dy -offsetbase.dy)/300);
-//       //     if(offsetStep.dx >5 && offsetStep.dx < (poolsize.width - 50 -5)  && offsetStep.dy >5 && offsetStep.dy < (poolsize.height - 50 -5)  ){
-//       //       sendPort.send(offsetStep);
-//       //     }else{
-//       //       offsetStep = offsetend;
-//       //     }
-//       //   });
-//       // }
-//   }
-//   Future? _initdata;
-//
-//   Future initdata() async{
-//     isolate = await Isolate.spawn(randomPosistion, masterPort.sendPort);
-//     // masterPort.listen((message) {
-//     //   if(message.data!=null && message.data is SendPort){
-//     //     slaveport = message;
-//     //     masterPort.close();
-//     //   }
-//     // });
-//
-//     return Future.value();
-//   }
-//   @override
-//   void initState() {
-//     _initdata = initdata();
-//     super.initState();
-//   }
-//
-//   @override
-//   void dispose() {
-//     super.dispose();
-//     masterPort.close();
-//     isolate.kill();
-//   }
-//
-//   // @override
-//   // void didUpdateWidget(covariant MyHomePage oldWidget) {
-//   //   print(oldWidget.)
-//   //   super.didUpdateWidget(oldWidget);
-//   // }
-//   Capability? pauseCap;
-//   void _incrementCounter() {
-//     isolate.resume(pauseCap!);
-//   }
-//
-//   @override
-//   Widget build(BuildContext context) {
-//     return Scaffold(
-//       body: FutureBuilder(
-//         future: _initdata,
-//         builder: (context, snapshotF) {
-//         if(snapshotF.connectionState==ConnectionState.done){
-//           return StreamBuilder<dynamic>(
-//             stream: masterPort,snapshotS
-//             builder: (context, snapshotS) {
-//               count ++;
-//               Offset pos = Offset.zero;
-//
-//               if(snapshotS.data!=null && snapshotS.data is SendPort){
-//                 print(">>>>>>>>init>>>>>>>>>");
-//                 print(snapshotS.data);
-//                 slaveport = snapshotS.data;
-//                 return SizedBox.shrink();
-//               }
-//
-//               if(snapshotS.data!=null && snapshotS.data is Offset){
-//                 print(">>>>>>>>>slave port>>>>>>>>");
-//                 print(slaveport);
-//                 // slaveport.send("next");
-//                 pos = snapshotS.data as Offset;
-//                 return SizedBox.fromSize(
-//                   size: MediaQuery.of(context).size,
-//                   child: CustomPaint(
-//                     painter: ShapePainter(
-//                       shapeOffset: pos,
-//                       shapeSize: Size(50,50),
-//                     ),
-//                   ),
-//                 );
-//               }
-//
-//               return SizedBox.shrink();
-//
-//             },
-//           );
-//
-//           // return Center(
-//           //   child: Container(
-//           //     color: Colors.blue,
-//           //     height: poolsize.height,
-//           //     width: poolsize.width,
-//           //     child: Stack(children: [
-//           //       StreamBuilder<dynamic>(
-//           //         stream: receivePort,
-//           //         builder: (context, snapshot) {
-//           //           Offset pos = Offset.zero;
-//           //           if(snapshot.data!=null){
-//           //             pos = snapshot.data as Offset;
-//           //           }
-//           //           return Positioned(
-//           //             left: pos.dx,
-//           //             top: pos.dy,
-//           //             child: Listener(
-//           //               onPointerDown: (e){
-//           //                 pauseCap = isolate.pause();
-//           //               },
-//           //               child: Container(height: 50,width: 50, color: Colors.red,),
-//           //             ),
-//           //           );
-//           //         },
-//           //       ),
-//           //     ],),
-//           //   ),
-//           // );
-//         }
-//         return Center(child: Container(child: CircularProgressIndicator(),),);
-//       },),
-//
-//       floatingActionButton: FloatingActionButton(
-//         onPressed: _incrementCounter,
-//         tooltip: 'Increment',
-//         child: const Icon(Icons.add),
-//       ),
-//     );
-//   }
-// }
-
-

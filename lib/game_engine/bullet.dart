@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:isolate';
 import 'dart:math';
 
@@ -77,10 +76,9 @@ class Bullet {
 
 void positionBullet(SendPort isolateToMainStream) {
   double t = 0;
-  double stepTime = 0.001;
-  double tBullets = 0.01;
+  double stepTime = 0.016;
   double vBullets = 20;
-  double aBullets = -0.5;
+  double aBullets = -5;
   Size poolsize = Size.zero;
 
   List<Offset> bullet = [];
@@ -94,27 +92,25 @@ void positionBullet(SendPort isolateToMainStream) {
 
   mainToIsolateStream.listen((data) async {
     if (data['type'] == BulletMessageType.init.name) {
-      print(' init data ${data['data']}');
       poolsize = data['data'];
       t = 0;
-      stepTime = 0.001;
-      tBullets = 0.001;
-      vBullets = 50;
-      aBullets = -10;
+      stepTime = 0.016;
+      vBullets = 20;
+      aBullets = -5;
       bullet = [];
       linear = [];
-      print(poolsize);
       isolateToMainStream.send(BulletMessage.toJson(
         BulletMessage(data: null, type: BulletMessageType.ready),
       ));
     } else if (data['type'] == BulletMessageType.ready.name) {
+      t = 0;
       isolateToMainStream.send(
         BulletMessage.toJson(
           BulletMessage(data: null, type: BulletMessageType.update),
         ),
       );
     } else if (data['type'] == BulletMessageType.fire.name) {
-      print('fireer ${data}');
+      t = 0;
       double arc = double.parse(data['data'].toString());
       linear.add(arc);
       bullet.add(Offset(poolsize.width / 2, poolsize.height));
@@ -123,31 +119,30 @@ void positionBullet(SendPort isolateToMainStream) {
           BulletMessage(data: null, type: BulletMessageType.update),
         ),
       );
-      print(bullet);
     } else if (data['type'] == BulletMessageType.update.name) {
       if (poolsize.width > 0 && bullet.isNotEmpty) {
-        await Future.delayed(const Duration(milliseconds: 1));
+        await Future.delayed(const Duration(milliseconds: 16));
         if (linear.isNotEmpty && bullet.isNotEmpty) {
           t = t + stepTime;
-          // for (var i = 0; i < linear.length; i++) {}
           double sign = linear[0] > 90 ? -1 : 1;
           if (linear[0] == 90) {
             bullet[0] = Offset(bullet[0].dx, bullet[0].dy - vBullets * t);
           } else {
             bullet[0] = Offset(
-              bullet[0].dx + vBullets * tBullets * sign,
-              -(tan((linear[0] * pi) / 180) * (vBullets * tBullets) * sign) +
+              bullet[0].dx + vBullets * t * sign,
+              -(tan((linear[0] * pi) / 180) * (vBullets * t) * sign) +
                   bullet[0].dy,
             );
           }
-          print(bullet[0]);
-          if (bullet[0].dx < 0 ||
-              bullet[0].dx > poolsize.width ||
-              bullet[0].dy < 0) {
+          if (bullet[0].dx <= 0 ||
+              bullet[0].dx >= poolsize.width ||
+              bullet[0].dy <= 0) {
             bullet.removeAt(0);
             linear.removeAt(0);
             t = 0;
           }
+        } else {
+          t = 0;
         }
 
         isolateToMainStream.send(

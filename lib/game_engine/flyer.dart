@@ -10,6 +10,8 @@ enum FlyerMessageType {
   init,
   update,
   ready,
+  killed,
+  win,
 }
 
 class FlyerMessage {
@@ -81,7 +83,7 @@ class Flyer {
 
 void positionFlyer(SendPort isolateToMainStream) {
   double t = 0;
-  double stepTime = 0.001;
+  double stepTime = 0.016;
 
   ReceivePort mainToIsolateStream = ReceivePort();
   isolateToMainStream.send(FlyerMessage.toJson(
@@ -104,13 +106,14 @@ void positionFlyer(SendPort isolateToMainStream) {
   mainToIsolateStream.listen((data) async {
     if (data['type'] == FlyerMessageType.init.name) {
       poolsize = data['data'];
+      print(' inittt ${poolsize}');
       t = 0;
-      stepTime = 0.001;
+      stepTime = 0.016;
       flyer = flyer.copyWith(
-        ax: 60,
-        ay: 60,
-        vx: 300,
-        vy: 300,
+        ax: 0.5,
+        ay: 0.5,
+        vx: 60,
+        vy: 60,
         size: const Size(50, 50),
         mass: 0.001,
       );
@@ -123,9 +126,28 @@ void positionFlyer(SendPort isolateToMainStream) {
           FlyerMessage(data: null, type: FlyerMessageType.update),
         ),
       );
+    } else if (data['type'] == FlyerMessageType.killed.name) {
+      t = 0;
+      if (flyer.ay < 15) {
+        flyer.ay = flyer.ay + 0.001;
+        flyer.ax = flyer.ax + 0.001;
+        print("UPdata ayyyyy");
+      }
+      flyer.pos = Offset(
+          Random.secure()
+              .nextInt((poolsize.width - flyer.size.width).round())
+              .toDouble(),
+          Random.secure()
+              .nextInt((poolsize.height - flyer.size.height - 200).round())
+              .toDouble());
+      isolateToMainStream.send(
+        FlyerMessage.toJson(
+          FlyerMessage(data: null, type: FlyerMessageType.killed),
+        ),
+      );
     } else if (data['type'] == FlyerMessageType.update.name) {
       if (poolsize.width > 0) {
-        await Future.delayed(const Duration(microseconds: 1000));
+        await Future.delayed(const Duration(milliseconds: 16));
         if (t == 0) {
           flyer.start = Offset(flyer.pos.dx, flyer.pos.dy);
           flyer.stop = Offset(
@@ -135,21 +157,21 @@ void positionFlyer(SendPort isolateToMainStream) {
               Random.secure()
                   .nextInt((poolsize.height - flyer.size.height).round())
                   .toDouble());
-          if (flyer.pos.dy < flyer.stop.dy) {
-            flyer.ay = flyer.ay + g;
-          } else {
-            flyer.ay = flyer.ay - g;
-          }
           t = t + stepTime;
         } else {
-          // print(flyer.pos);
-
           double signX = (flyer.stop.dx - flyer.start.dx).sign;
           double signY = (flyer.stop.dy - flyer.start.dy).sign;
-
-          if ((flyer.stop.dx - flyer.pos.dx).abs() < 5 &&
-              (flyer.stop.dy - flyer.pos.dy).abs() < 5) {
+          if (((flyer.stop.dx - flyer.pos.dx).abs() < 5 &&
+                  (flyer.stop.dy - flyer.pos.dy).abs() < 5) ||
+              (flyer.pos.dy.abs() > poolsize.height) ||
+              (flyer.pos.dx.abs() > poolsize.width) ||
+              (flyer.pos.dx.abs() < 0) ||
+              (flyer.pos.dy.abs() < 0)) {
             t = 0;
+            flyer.pos = Offset(
+              flyer.stop.dx,
+              flyer.stop.dy,
+            );
           } else {
             double newX = flyer.start.dx +
                 signX * (flyer.vx * t + 0.5 * flyer.ax * pow(t, 2));
@@ -167,6 +189,13 @@ void positionFlyer(SendPort isolateToMainStream) {
               newX,
               newY,
             );
+            if ((newY.abs() + 100 > poolsize.height)) {
+              isolateToMainStream.send(
+                FlyerMessage.toJson(
+                  FlyerMessage(data: null, type: FlyerMessageType.win),
+                ),
+              );
+            }
             t = t + stepTime;
           }
         }
@@ -191,96 +220,7 @@ void positionFlyer(SendPort isolateToMainStream) {
         ),
       );
     }
-    // try {
-    //   data = json.decode(data);
-    //   print(data is FlyerMessage);
-    // } catch (e) {
-    //   print(e);
-    // }
-    // print(data);
-    // if (data != null && data is Map) {
-    //   if (data['message'] == "pumpBullet") {
-    //     double arc = double.parse(data['arc'].toString());
-    //     linear.add(arc);
-    //     bullet.add(Offset(poolsize.width / 2, poolsize.height));
-    //     // print("new bullet");
-    //     // print(bullet);
-    //   }
-    // } else if (data != null && data is Size) {
-    //   poolsize = data;
-    //   vx = 50;
-    //   vy = 30;
-    //   ax = 0;
-    //   ay = 0;
-    //   t = 0;
-    //   stepTime = 0.001;
-    //   isolateToMainStream.send(poolsize);
-    // } else if (data is String && poolsize.width != 0) {
-    //   await Future.delayed(const Duration(microseconds: 1000));
-    //   if (linear.isNotEmpty && bullet.isNotEmpty) {
-    //     double sign = linear[0] > 90 ? -1 : 1;
-    //     if (linear[0] == 90) {
-    //       bullet[0] = Offset(bullet[0].dx, bullet[0].dy - 0.1 * t);
-    //     } else {
-    //       bullet[0] = Offset(
-    //         bullet[0].dx + vBullets * tBullets * sign,
-    //         -(tan((linear[0] * pi) / 180) * (vBullets * tBullets) * sign) +
-    //             bullet[0].dy,
-    //       );
-    //     }
-
-    //     if ((Offset(offsetend.dx - bullet[0].dx, offsetend.dy - bullet[0].dy))
-    //             .distance <
-    //         30) {
-    //       print("arrow>>>>");
-
-    //       t = 0;
-    //       offsetbase = Offset.zero;
-    //       offsetStep = Offset.zero;
-    //       offsetend = Offset.zero;
-    //       bullet.removeAt(0);
-    //       linear.removeAt(0);
-    //     } else {
-    //       if (bullet[0].dx < 0 ||
-    //           bullet[0].dx > poolsize.width ||
-    //           bullet[0].dy < 0) {
-    //         bullet.removeAt(0);
-    //         linear.removeAt(0);
-    //       }
-    //     }
-    //   }
-
-    //   if (t == 0) {
-    //     offsetbase = Offset(offsetStep.dx, offsetStep.dy);
-    //     offsetend = Offset(
-    //         Random.secure().nextInt((poolsize.width - 50).round()).toDouble(),
-    //         Random.secure().nextInt((poolsize.height - 50).round()).toDouble());
-    //     stepTime =
-    //         ((offsetend.dx - offsetbase.dx) / poolsize.width).abs() / 100;
-    //     t = t + stepTime;
-    //   } else {
-    //     if ((Offset(offsetend.dx - offsetStep.dx, offsetend.dx - offsetStep.dx))
-    //             .distance <
-    //         5) {
-    //       t = 0;
-    //     } else {
-    //       double signX = (offsetend.dx - offsetbase.dx).sign;
-    //       double signY = (offsetend.dy - offsetbase.dy).sign;
-    //       offsetStep = Offset(
-    //         offsetbase.dx + signX * (vx * t + 0.5 * ax * pow(t, 2)),
-    //         offsetbase.dy + signY * (vy * t + 0.5 * ay * pow(t, 2)),
-    //       );
-    //       t = t + stepTime;
-    //     }
-    //   }
-    //   isolateToMainStream.send(
-    //       {'flyer': offsetStep, 'bullet': bullet.isEmpty ? null : bullet});
-    // } else {
-    //   isolateToMainStream.send("stream isolate");
-    // }
   });
-
-  // isolateToMainStream.send('This is from myIsolate()');
 }
 
 class FlyerPainter extends CustomPainter {
